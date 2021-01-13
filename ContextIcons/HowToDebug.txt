@@ -1,0 +1,112 @@
+
+Bob's Mental Moshpit
+Jump into the pit and excite your neurons.
+Menu
+Search
+Tips For Debugging a Windows Shell Extension
+
+This is just a brief article to note the debugging work flow I used while recently developing the Associated Windows Shell Extension. Windows Shell Extensions can be a bit tricky to debug, especially when you use the live Windows Explorer to test your work, as I do. The work flow I use is not very complicated, and doesn’t require hacking the Windows Registry (as some techniques do). There are other work flows that run separate Explorer processes, and do not require elevated privileges, but this is the work flow I use.
+
+It should be noted that some actions documented herein will likely require elevated privileges. I am always Administrator, so do not typically run into difficulties. If you do not operate as Administrator, you may need to do so in order to successfully accomplish tasks listed in this article.
+[ Keep ‘Em Separated ]
+
+While developing a Shell Extension, I like to set up a folder that will contain all the files that will ultimately be included in the distributed product. This is never the Visual Studio project’s debug or release folder. Aside from having issues compiling if you have a Shell Extension active in Explorer, you run the risk of having the files deleted by a project “Clean” or just by hand-deleting those folders.
+
+You can place the folder to contain these files anywhere you like, but I like to create one under the target folder (e.g., “C:\Program Files (x86)\…”). This lets me see how the code will behave in its live folder as I develop it.
+
+As I’m developing, I manually copy the build product (the Shell Extension DLL) into the target folder and install it into the running Explorer process from there. This, of course, requires command-line actions, but having a UN*X background, I almost always have a DOS window open all the time.
+
+In any case, you should not use your project debug or release folder as your working folders. You will often find that you will want the in-development Shell Extension active and usable in Explorer while you are also tweaking and re-compiling the project. If you have the Shell Extension found in the project’s debug or release folders installed and active in Explore, your build process will be unable to overwrite it, and you will find yourself performing addition uninstalls each time you want to build again.
+[ Adding Your Extension ]
+
+Once you’ve built your working Shell Extension DLL, you’ll need to register it into the Explorer process. Registration is performed using the regsvr32 command-line utility.
+
+regsvr32 /s Associated_x64.dll
+
+This call registers the Shell Extension with Explorer. The “/s” option merely suppresses the GUI confirmation dialog. It may be useful to call regsvr32 without this switch just to confirm that your Extension registered successfully.
+
+It should be noted that this call does not immediately load the Extension DLL into Explorer. Not until the Extension is used does the DLL actually get loaded and locked into Explorer’s process space. For example, a Context Menu Shell Extension would be loaded only when a right-click context menu is activated in Explorer. So, until the DLL is actually loaded for use by Explorer, it can be freely removed by another call to regsvr32 which will unregister it:
+
+regsvr32 /s /u Associated_x64.dll
+
+If your Extension DLL is locked into Explorer’s process space, however, this call to unregister will not completely detach the shared library. It will remain locked in Explorer’s process space. Explorer must be restarted to completely release the shared library. Usually, this is done using a reboot; you’ll often see program installers do this when you uninstall applications that have Extensions locked in Explorer’s process space. With elevated privileges, however, you needn’t be that drastic.
+[ Debugging the Bugger ]
+
+Of course, you’ll only be able to actually debug an active Extension if you have a debug build capable of loading into Explorer. This means the shared library can find all of its dependent files, either in it’s working folder, or somewhere along the PATH. How this is configured is left as an exercise for the reader, but your Extension will fail to load into Explorer if any of its dependent files are not locatable by one of these methods.
+
+After a successful registration of your debug build with Explorer, you’ll want to start the process of debugging it. This is accomplished by loading up the Extension project in Visual Studio (it probably already is), and setting break points within the code where you wish the Extension to stop during its execution. With the debug environment prepared, debugging begins when you attach your Visual Studio debugging session to the running Explorer process. This is done by selecting “Attach to Process…” from the Debug menu:
+
+Debug->Attach to Process...
+
+This opens a dialog that lists all the current processes, sorted alphabetically. Locate the “explorer.exe” process, and select “Attach”:
+
+The Explorer process entry
+
+Your debug session is now active. You may now interact with your Extension in the active Explorer, and your breakpoints will hit just as though you were running the Extension as a stand-alone process.
+
+When you are finished, you can simply detach from the running process (terminating your debug session will also work, but may kill the host process.)
+[ Reset ]
+
+As I’ve mentioned, once your Extension is loaded into Explorer’s process space, Explorer itself must be terminated in order to release the shared library. Rebooting Windows accomplishes this, but this sort of solution is horribly disruptive to the development work flow. Instead, you can manually terminate and restart Explorer, and in between, unregister your Shell Extension.
+
+I use the following simple batch file to accomplish all these steps in one call:
+
+@echo off
+taskkill /F /IM explorer.exe
+regsvr32 /s /u %1
+start C:\Windows\explorer.exe
+
+The steps simply terminate the running Explorer process, unregister the indicated Shell Extension file, and then restart Explorer. Of course, you will need elevated privileges in order to kill Explorer, so if you do not run with these by default, you may need to modify certain calls (like “taskkill”) with the “runas” option in order to request elevated privileges.
+
+Once the shared library has been removed from Explorer, you are free to overwrite the Extension file with your updated build, and then re-register to star the fun all over again.😉
+Loading...
+April 10, 2011bobhood	Debugging, Shell Extension, Visual Studio, Windows	
+Post navigation
+←
+→
+4 thoughts on “Tips For Debugging a Windows Shell Extension”
+
+    lucy lawless role
+
+    Excellent post! We will be linking to this particularly great article on
+    our website. Keep up the great writing.
+    July 27, 2013 at 2:29 pm
+    Angel
+
+    Hi Mate,
+
+    I’ve just found this blog entry while searching for possible causes that could prevent a shell extension (Property Page to be specific) from loading. I’ve just written one but it’s just not loading at all, so I was wondering if you ever faced this issue.
+
+    Thanks,
+
+    Angel
+    January 27, 2014 at 5:00 am
+        bobhood
+
+        Hey, Angel.
+
+        Certainly, I’ve run into this before. There can be numerous reasons why it won’t load, but the most common (at least for me) is a missing dependency. I’d check to make sure any DLLs that your extension links against are visible to it in one of three places: the same folder where the binary resides; in your PATH setting; or in a system-global area (e.g., C:\Windows\System32).
+
+        If I’m not mistaken, you can also check the Windows Logs (Event Viewer -> Windows Logs -> System) for a report on why your extension failed to load. I don’t know how much information it might provide, but I’m pretty sure a load failure will show up in there somewhere. Typically, I will first go in and clear all the logs, and then attempt to load the extension. That way, the report is fairly easy to find.
+
+        Good luck, pal. 🙂
+        January 27, 2014 at 5:31 pm
+    Angelo
+
+    Hi Bob!
+
+    Nice post, very detailed. I, also, came across this page when looking for possible causes that my Context Shell Extension doesn’t load. It loads and works fine on my computer, however. Just not on other people’s computers. Nothing seems to show up in Event Viewer regarding any errors, either.
+
+    My dll is a managed binary, though. It’s using the excellent SharpShell .Net library, which allows me to write extensions in C#. I went over their troubleshooting page, and all it said that might be of use was that I needed to link my extension with a release build of SharpShell, which I actually did. So I’m clueless at the moment and have no idea where else to check.
+
+    I have a virtual machine running that also fails to load the extension. Are there any more things I can try to find out what the problem could possibly be?
+
+    Thanks,
+    Angelo
+
+    Ps: Totally not the same person that responded a month ago, despite similar names🙂
+    February 28, 2014 at 12:05 pm
+
+Comments are closed.
+Blog at WordPress.com.
+
